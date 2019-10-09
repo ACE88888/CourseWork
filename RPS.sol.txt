@@ -1,0 +1,108 @@
+pragma solidity 0.5.6;
+
+contract rps {
+    address payable public player1;
+    mapping (address => uint) pool;
+    bytes32 public commitment;
+
+    address payable public player2;
+    mapping (address => uint) follow;
+    bytes32 public pick;
+    
+    uint time1;
+    uint time2;
+    
+    bytes32 _rock = keccak256(abi.encodePacked("Rock"));
+    bytes32 _paper = keccak256(abi.encodePacked("Paper"));
+    bytes32 _scissors = keccak256(abi.encodePacked("Scissors"));
+    
+    event winner_takes_all(address winner, uint value);
+
+    function RPS() public payable {
+        player1 = msg.sender;
+    }
+    
+    function p1_commit(bytes32 _commitment) public payable {
+        require(msg.sender == player1);
+        require(msg.value > 0 ether);
+        pool[player1] = msg.value;
+        commitment = _commitment;
+        time1 = now;
+    }
+    
+    function p2_join(string calldata _play) external payable {
+        if (player2 == address(0)) {
+            pick = keccak256(abi.encodePacked(_play));
+            require(pick == _rock || pick == _paper || pick == _scissors);
+            require(msg.value >= pool[player1]);
+            player2 = msg.sender;
+            follow[player2] = msg.value;
+            time2 = now;
+        }
+    }
+    
+    function p1_reveal(string calldata _play, string calldata _salt) external {
+        bytes32 p1_pick = keccak256(abi.encodePacked(_play));
+        require(p1_pick == _rock || p1_pick == _paper || p1_pick == _scissors);
+        require(keccak256(abi.encodePacked(_play, _salt)) == commitment);
+        require(msg.sender == player1);
+        if (player2 == address(0)) {
+            selfdestruct(player1);
+        }
+        if(p1_pick == pick) {
+            delete commitment;
+            delete pick;
+        } else {
+            if (p1_pick == _scissors && pick == _paper) {
+                emit winner_takes_all(player1, follow[player2]);
+                player1.transfer(follow[player2]);
+                selfdestruct(player1);
+            } else if (p1_pick == _paper && pick == _rock) {
+                emit winner_takes_all(player1, follow[player2]);
+                player1.transfer(follow[player2]);
+                selfdestruct(player1);
+            } else if (p1_pick == _rock && pick == _scissors) {
+                emit winner_takes_all(player1, follow[player2]);
+                player1.transfer(follow[player2]);
+                selfdestruct(player1);
+            } else {
+                emit winner_takes_all(player2, pool[player1]);
+                player2.transfer(pool[player1]);
+                selfdestruct(player2);
+            }
+        }
+        if (block.timestamp - time2 > 30 seconds) {
+            emit winner_takes_all(player1, follow[player2]);
+            player1.transfer(follow[player2]);
+            selfdestruct(player1);
+        }
+    }
+    
+    function p2_payout() external {
+        if(block.timestamp - time1 > 30 seconds) {
+            emit winner_takes_all(player2, pool[player1]);
+            player2.transfer(pool[player1]);
+            selfdestruct(player2);
+        }
+    }
+    
+    function p1_replay(bytes32 _commitment) external {
+        require(msg.sender == player1);
+        require(commitment == "");
+        commitment = _commitment;
+        time1 = now;
+    }
+    
+    function p2_replay(string calldata _play) external {
+        require(msg.sender == player2);
+        require(pick == 0);
+        pick = keccak256(abi.encodePacked(_play));
+        time2 = now;
+    }
+}
+
+contract commitment {
+    function hashing(string memory _play, string memory _salt) public pure returns (bytes32 _commitment) {
+        return keccak256(abi.encodePacked(_play, _salt));
+    }
+}
